@@ -1,0 +1,47 @@
+[project]
+name = "roz-logs"
+version = "0.1.0"
+description = "Structured logging for Python with optional OpenTelemetry (OTLP) export to providers like Seq"
+authors = [
+    {name = "Jesse Stone",email = "jesse@stonedogcode.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.9,<4.0"
+
+# Core has zero required runtime dependencies — it is a thin wrapper over the
+# standard library `logging` module. OpenTelemetry export is opt-in via the
+# `otlp` extra so the library stays lightweight on constrained devices.
+dependencies = []
+
+[project.optional-dependencies]
+otlp = [
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.0"
+black = "^25.1.0"
+isort = "^6.0.1"
+flake8 = "^7.2.0"
+
+[tool.pytest.ini_options]
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+pythonpath = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src", "tests"]
