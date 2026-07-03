@@ -133,3 +133,93 @@ def test_parse_headers_string_and_mapping():
     assert _parse_headers("X-Seq-ApiKey=abc, Y=z") == {"X-Seq-ApiKey": "abc", "Y": "z"}
     assert _parse_headers({"A": 1}) == {"A": "1"}
     assert _parse_headers(None) == {}
+
+
+def test_parse_headers_skips_malformed_pairs():
+    # Blank segments and pairs missing a '=' are skipped rather than raising.
+    assert _parse_headers("X=1, , bogus, Y=2") == {"X": "1", "Y": "2"}
+
+
+def test_json_exception_field(capsys):
+    configure(service_name="svc", json_output=True)
+    log = get_logger("jsonexc")
+    try:
+        raise ValueError("kaboom")
+    except ValueError:
+        log.exception("failed", op="parse")
+    payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert payload["message"] == "failed"
+    assert payload["op"] == "parse"
+    assert "ValueError: kaboom" in payload["exception"]
+
+
+def test_json_field_collision_is_namespaced(capsys):
+    # A structured field named like a reserved envelope key must not clobber it.
+    configure(service_name="svc", json_output=True)
+    get_logger("collide").info("hi", service="attacker", level="spoof")
+    payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert payload["service"] == "svc"  # canonical value preserved
+    assert payload["level"] == "INFO"  # canonical value preserved
+    assert payload["message"] == "hi"
+    assert payload["field_service"] == "attacker"
+    assert payload["field_level"] == "spoof"
+
+
+def test_bound_logger_name_property():
+    configure()
+    assert get_logger("named.logger").name == "named.logger"
+
+
+def test_critical_level(capsys):
+    configure(level="DEBUG")
+    get_logger("crit").critical("meltdown", core=7)
+    err = capsys.readouterr().err
+    assert "CRITICAL" in err
+    assert "meltdown" in err
+    assert "core=7" in err
+
+
+def test_debug_below_level_is_suppressed(capsys):
+    # isEnabledFor short-circuit: a DEBUG call under an INFO level does nothing.
+    configure(level="INFO")
+    get_logger("q").debug("noisy")
+    assert "noisy" not in capsys.readouterr().err
+
+
+# --- OTLP export (requires the `otlp` extra to be installed) ------------------
+
+pytest.importorskip("opentelemetry.sdk._logs", reason="otlp extra not installed")
+
+
+def test_build_otlp_handler_returns_handler():
+    from opentelemetry.sdk._logs import LoggingHandler
+
+    from roz_logs.otlp import build_otlp_handler
+
+    handler = build_otlp_handler(
+        "card-sorter",
+        logging.INFO,
+        "http://localhost:5341/ingest/otlp/v1/logs",
+        headers={"X-Seq-ApiKey": "secret"},
+    )
+    assert handler is not None
+    assert isinstance(handler, logging.Handler)
+    assert isinstance(handler, LoggingHandler)
+
+
+def test_configure_installs_otlp_handler_when_extra_present():
+    # With the extra installed, configure() must attach a second (OTLP) handler
+    # flagged as ours, alongside the console handler.
+    configure(
+        service_name="svc",
+        otlp_endpoint="http://localhost:5341/ingest/otlp/v1/logs",
+        otlp_headers="X-Seq-ApiKey=abc",
+    )
+    root = logging.getLogger()
+    roz_handlers = [
+        h for h in root.handlers if getattr(h, "_roz_logs_handler", False)
+    ]
+    assert len(roz_handlers) == 2  # console + OTLP
+    from opentelemetry.sdk._logs import LoggingHandler
+
+    assert any(isinstance(h, LoggingHandler) for h in roz_handlers)

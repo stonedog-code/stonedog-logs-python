@@ -24,18 +24,37 @@ otlp = [
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+# The source layout is ``src/roz_logs`` (import name ``roz_logs``, distribution
+# name ``roz-logs``). Tell poetry-core where to find the package so the built
+# wheel/sdist actually contains it.
+[tool.poetry]
+packages = [{ include = "roz_logs", from = "src" }]
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
+pytest-cov = "^6.0.0"
 black = "^25.1.0"
 isort = "^6.0.1"
 flake8 = "^7.2.0"
 
 [tool.pytest.ini_options]
-addopts = "-ra -q"
+addopts = "-ra -q --cov=roz_logs --cov-report=term-missing --cov-fail-under=90"
 testpaths = [
     "tests",
 ]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["roz_logs"]
+
+[tool.coverage.report]
+fail_under = 90
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
 
 [tool.black]
 line-length = 88

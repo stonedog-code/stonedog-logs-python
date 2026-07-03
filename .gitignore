@@ -14,3 +14,4 @@ dist/
 # Virtual environments
 .venv/
 venv/
+.coverage

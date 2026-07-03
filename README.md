@@ -64,21 +64,56 @@ deploy without touching code:
 | `otlp_endpoint`  | `ROZ_LOGS_OTLP_ENDPOINT`  | _(unset → console only)_ |
 | `otlp_headers`   | `ROZ_LOGS_OTLP_HEADERS`   | _(unset)_ |
 
-### Shipping to Seq
+`ROZ_LOGS_JSON` accepts any of `1`, `true`, `yes`, `on` (case-insensitive) to
+switch from the human-readable `TextFormatter` to the line-delimited
+`JsonFormatter`; anything else keeps text output.
+
+## OTLP export (shipping to Seq and other collectors)
+
+The core library has **zero runtime dependencies** and only ever writes to the
+console. Cloud/collector export is opt-in through the `otlp` extra, which pulls
+in the OpenTelemetry SDK and the OTLP/HTTP log exporter:
+
+```bash
+pip install "roz-logs[otlp]"
+```
+
+Once installed, setting an OTLP endpoint makes `configure()` attach a *second*
+handler (in addition to the console) that batches log records and exports them
+over OTLP/HTTP:
 
 ```bash
 export ROZ_LOGS_OTLP_ENDPOINT="http://localhost:5341/ingest/otlp/v1/logs"
 export ROZ_LOGS_OTLP_HEADERS="X-Seq-ApiKey=<your-api-key>"
 ```
 
-If the `otlp` extra is not installed, requesting an endpoint logs a warning and
-falls back to console output rather than failing.
+Under the hood `build_otlp_handler()` wires up an OpenTelemetry
+`LoggerProvider` (tagged with `service.name` = your `service_name`), a
+`BatchLogRecordProcessor`, and an `OTLPLogExporter` pointed at your endpoint,
+then returns a stdlib `logging.Handler` bridging the two. Records flow:
+
+```
+log.info(...) → stdlib logging → OTLP LoggingHandler → BatchLogRecordProcessor
+             → OTLPLogExporter (HTTP) → Seq / OTel Collector / Grafana / …
+```
+
+For [Seq](https://datalust.co/seq) the endpoint is
+`http://<host>:5341/ingest/otlp/v1/logs` and the API key travels in a header
+(`X-Seq-ApiKey`). Any OTLP/HTTP logs endpoint works the same way.
+
+**Graceful degradation:** if you request an endpoint but the `otlp` extra is
+not installed, `roz-logs` logs a warning and keeps console logging working
+rather than crashing — so the same code runs on a constrained device (console
+only) and a server (console + OTLP) with no changes.
 
 ## Development
 
 ```bash
-pip install pytest
-PYTHONPATH=src pytest        # or: pytest  (pythonpath is set in pyproject.toml)
+pip install pytest pytest-cov
+pytest                        # runs unit tests with a 90% coverage gate
+
+# to exercise the OTLP code paths, install the extra into your test env:
+pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
 ```
 
 ## License
