@@ -1,13 +1,13 @@
 """Optional OpenTelemetry (OTLP) log export.
 
-This module is imported lazily by :func:`roz_logs.logger.configure` and only
+This module is imported lazily by :func:`stonedog_logs.logger.configure` and only
 does anything when the ``otlp`` extra is installed::
 
-    pip install "roz-logs[otlp]"
+    pip install "stonedog-logs[otlp]"
 
 It targets any OTLP/HTTP logs endpoint. For `Seq <https://datalust.co/seq>`_
 the endpoint is typically ``http://<host>:5341/ingest/otlp/v1/logs`` with the
-API key supplied via headers, e.g. ``ROZ_LOGS_OTLP_HEADERS=X-Seq-ApiKey=<key>``.
+API key supplied via headers, e.g. ``STONEDOG_LOGS_OTLP_HEADERS=X-Seq-ApiKey=<key>``.
 """
 
 from __future__ import annotations

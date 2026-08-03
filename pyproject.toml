@@ -1,6 +1,6 @@
 [project]
-name = "roz-logs"
-version = "0.1.0"
+name = "stonedog-logs"
+version = "0.2.0"
 description = "Structured logging for Python with optional OpenTelemetry (OTLP) export to providers like Seq"
 authors = [
     {name = "Jesse Stone",email = "jesse@stonedogcode.com"}
@@ -24,11 +24,14 @@ otlp = [
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
-# The source layout is ``src/roz_logs`` (import name ``roz_logs``, distribution
-# name ``roz-logs``). Tell poetry-core where to find the package so the built
-# wheel/sdist actually contains it.
+# The source layout is ``src/stonedog_logs`` (import name ``stonedog_logs``,
+# distribution name ``stonedog-logs``). Tell poetry-core where to find the
+# package so the built wheel/sdist actually contains it.
+#
+# Published as ``roz-logs`` up to 0.1.0; that distribution stays on PyPI but is
+# no longer updated.
 [tool.poetry]
-packages = [{ include = "roz_logs", from = "src" }]
+packages = [{ include = "stonedog_logs", from = "src" }]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
@@ -38,14 +41,14 @@ isort = "^6.0.1"
 flake8 = "^7.2.0"
 
 [tool.pytest.ini_options]
-addopts = "-ra -q --cov=roz_logs --cov-report=term-missing --cov-fail-under=90"
+addopts = "-ra -q --cov=stonedog_logs --cov-report=term-missing --cov-fail-under=90"
 testpaths = [
     "tests",
 ]
 pythonpath = ["src"]
 
 [tool.coverage.run]
-source = ["roz_logs"]
+source = ["stonedog_logs"]
 
 [tool.coverage.report]
 fail_under = 90

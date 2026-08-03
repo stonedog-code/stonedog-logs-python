@@ -1,9 +1,9 @@
-# roz-logs
+# stonedog-logs
 
 Structured logging for Python with optional OpenTelemetry (OTLP) export to
 providers like [Seq](https://datalust.co/seq).
 
-`roz-logs` is a thin, dependency-free wrapper over the standard library
+`stonedog-logs` is a thin, dependency-free wrapper over the standard library
 `logging` module. It gives you:
 
 - **Structured fields** — pass `key=value` pairs to any log call, rendered as
@@ -12,7 +12,7 @@ providers like [Seq](https://datalust.co/seq).
   stamps every record with that context.
 - **One-call setup** — `configure()` installs handlers/formatters and reads
   sensible defaults from environment variables.
-- **Opt-in cloud export** — set `ROZ_LOGS_OTLP_ENDPOINT` to ship logs to any
+- **Opt-in cloud export** — set `STONEDOG_LOGS_OTLP_ENDPOINT` to ship logs to any
   OTLP/HTTP collector (Seq, Grafana, an OpenTelemetry Collector, …). With no
   endpoint set, it logs to the console and has zero heavy dependencies — ideal
   for offline/embedded use such as the Raspberry Pi card sorter.
@@ -20,14 +20,14 @@ providers like [Seq](https://datalust.co/seq).
 ## Install
 
 ```bash
-pip install roz-logs            # console logging, no extra deps
-pip install "roz-logs[otlp]"    # + OpenTelemetry OTLP export
+pip install stonedog-logs            # console logging, no extra deps
+pip install "stonedog-logs[otlp]"    # + OpenTelemetry OTLP export
 ```
 
 ## Usage
 
 ```python
-from roz_logs import configure, get_logger
+from stonedog_logs import configure, get_logger
 
 configure(service_name="card-sorter")        # call once at startup
 log = get_logger(__name__)
@@ -56,15 +56,21 @@ configure(service_name="card-sorter", json_output=True)
 Every `configure()` argument falls back to an environment variable, so you can
 deploy without touching code:
 
-| Argument         | Environment variable      | Default |
-|------------------|---------------------------|---------|
-| `service_name`   | `ROZ_LOGS_SERVICE_NAME`   | `app`   |
-| `level`          | `ROZ_LOGS_LEVEL`          | `INFO`  |
-| `json_output`    | `ROZ_LOGS_JSON`           | `false` |
-| `otlp_endpoint`  | `ROZ_LOGS_OTLP_ENDPOINT`  | _(unset → console only)_ |
-| `otlp_headers`   | `ROZ_LOGS_OTLP_HEADERS`   | _(unset)_ |
+| Argument        | Environment variable            | Default |
+|-----------------|---------------------------------|---------|
+| `service_name`  | `STONEDOG_LOGS_SERVICE_NAME`    | `app`   |
+| `level`         | `STONEDOG_LOGS_LEVEL`           | `INFO`  |
+| `json_output`   | `STONEDOG_LOGS_JSON`            | `false` |
+| `otlp_endpoint` | `STONEDOG_LOGS_OTLP_ENDPOINT`   | _(unset → console only)_ |
+| `otlp_headers`  | `STONEDOG_LOGS_OTLP_HEADERS`    | _(unset)_ |
 
-`ROZ_LOGS_JSON` accepts any of `1`, `true`, `yes`, `on` (case-insensitive) to
+Each variable also accepts its pre-rename `ROZ_LOGS_*` spelling, which is read
+only when the `STONEDOG_LOGS_*` one is unset. Deployed card sorters were
+configured with the old names, and dropping them would not fail loudly — it
+would silently revert those devices to defaults. Prefer the new names in
+anything written from here on.
+
+`STONEDOG_LOGS_JSON` accepts any of `1`, `true`, `yes`, `on` (case-insensitive) to
 switch from the human-readable `TextFormatter` to the line-delimited
 `JsonFormatter`; anything else keeps text output.
 
@@ -75,7 +81,7 @@ console. Cloud/collector export is opt-in through the `otlp` extra, which pulls
 in the OpenTelemetry SDK and the OTLP/HTTP log exporter:
 
 ```bash
-pip install "roz-logs[otlp]"
+pip install "stonedog-logs[otlp]"
 ```
 
 Once installed, setting an OTLP endpoint makes `configure()` attach a *second*
@@ -83,8 +89,8 @@ handler (in addition to the console) that batches log records and exports them
 over OTLP/HTTP:
 
 ```bash
-export ROZ_LOGS_OTLP_ENDPOINT="http://localhost:5341/ingest/otlp/v1/logs"
-export ROZ_LOGS_OTLP_HEADERS="X-Seq-ApiKey=<your-api-key>"
+export STONEDOG_LOGS_OTLP_ENDPOINT="http://localhost:5341/ingest/otlp/v1/logs"
+export STONEDOG_LOGS_OTLP_HEADERS="X-Seq-ApiKey=<your-api-key>"
 ```
 
 Under the hood `build_otlp_handler()` wires up an OpenTelemetry
@@ -102,7 +108,7 @@ For [Seq](https://datalust.co/seq) the endpoint is
 (`X-Seq-ApiKey`). Any OTLP/HTTP logs endpoint works the same way.
 
 **Graceful degradation:** if you request an endpoint but the `otlp` extra is
-not installed, `roz-logs` logs a warning and keeps console logging working
+not installed, `stonedog-logs` logs a warning and keeps console logging working
 rather than crashing — so the same code runs on a constrained device (console
 only) and a server (console + OTLP) with no changes.
 
@@ -115,6 +121,20 @@ pytest                        # runs unit tests with a 90% coverage gate
 # to exercise the OTLP code paths, install the extra into your test env:
 pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
 ```
+
+## Renamed from `roz-logs`
+
+This library was published as **`roz-logs`** through 0.1.0. It is the same
+library under the StoneDogCode name: the distribution is now `stonedog-logs`
+and the import is `stonedog_logs`.
+
+```python
+from roz_logs import configure, get_logger        # before
+from stonedog_logs import configure, get_logger   # now
+```
+
+The old [`roz-logs`](https://pypi.org/project/roz-logs/) distribution stays on
+PyPI so existing installs keep working, but it receives no further releases.
 
 ## License
 
