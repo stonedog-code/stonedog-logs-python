@@ -1,8 +1,8 @@
-"""roz-logs: structured logging for Python with optional OTLP export.
+"""stonedog-logs: structured logging for Python with optional OTLP export.
 
 Public API::
 
-    from roz_logs import configure, get_logger
+    from stonedog_logs import configure, get_logger
 
     configure(service_name="my-service")
     log = get_logger(__name__)

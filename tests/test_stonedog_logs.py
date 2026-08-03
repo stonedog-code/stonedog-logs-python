@@ -1,14 +1,15 @@
-"""Tests for the roz-logs structured logging library."""
+"""Tests for the stonedog-logs structured logging library."""
 
 import json
 import logging
 
 import pytest
 
-import roz_logs
-from roz_logs import configure, get_logger
-from roz_logs.logger import _coerce_level, _render_value
-from roz_logs.otlp import _parse_headers
+import stonedog_logs
+import stonedog_logs.logger as logger_mod
+from stonedog_logs import configure, get_logger
+from stonedog_logs.logger import _coerce_level, _render_value
+from stonedog_logs.otlp import _parse_headers
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +18,7 @@ def _reset_logging():
     root = logging.getLogger()
     saved = list(root.handlers)
     root.handlers.clear()
-    import roz_logs.logger as logger_mod
+    import stonedog_logs.logger as logger_mod
 
     logger_mod._CONFIG = None
     yield
@@ -72,10 +73,10 @@ def test_level_filtering(capsys):
 def test_configure_is_idempotent():
     configure(service_name="a")
     configure(service_name="b")
-    roz_handlers = [
-        h for h in logging.getLogger().handlers if getattr(h, "_roz_logs_handler", False)
+    installed_handlers = [
+        h for h in logging.getLogger().handlers if getattr(h, "_stonedog_logs_handler", False)
     ]
-    assert len(roz_handlers) == 1  # not stacked
+    assert len(installed_handlers) == 1  # not stacked
 
 
 def test_get_logger_autoconfigures(capsys):
@@ -98,14 +99,51 @@ def test_exception_renders_traceback(capsys):
 
 
 def test_env_var_configuration(capsys, monkeypatch):
-    monkeypatch.setenv("ROZ_LOGS_SERVICE_NAME", "from-env")
-    monkeypatch.setenv("ROZ_LOGS_LEVEL", "DEBUG")
-    monkeypatch.setenv("ROZ_LOGS_JSON", "true")
+    monkeypatch.setenv("STONEDOG_LOGS_SERVICE_NAME", "from-env")
+    monkeypatch.setenv("STONEDOG_LOGS_LEVEL", "DEBUG")
+    monkeypatch.setenv("STONEDOG_LOGS_JSON", "true")
     configure()
     get_logger("e").debug("dbg")
     payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert payload["service"] == "from-env"
     assert payload["message"] == "dbg"
+
+
+def test_legacy_roz_env_vars_still_configure(capsys, monkeypatch):
+    # Deployed card sorters carry ROZ_LOGS_* from before the rename. Dropping
+    # the fallback would not fail loudly, it would silently revert them to
+    # defaults — so the old spelling must keep working.
+    monkeypatch.delenv("STONEDOG_LOGS_SERVICE_NAME", raising=False)
+    monkeypatch.setenv("ROZ_LOGS_SERVICE_NAME", "legacy-env")
+    monkeypatch.setenv("ROZ_LOGS_JSON", "true")
+    configure()
+    get_logger("legacy").info("hi")
+    payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert payload["service"] == "legacy-env"
+
+
+def test_new_env_var_wins_over_legacy(capsys, monkeypatch):
+    monkeypatch.setenv("STONEDOG_LOGS_SERVICE_NAME", "new")
+    monkeypatch.setenv("ROZ_LOGS_SERVICE_NAME", "old")
+    monkeypatch.setenv("STONEDOG_LOGS_JSON", "true")
+    configure()
+    get_logger("both").info("hi")
+    payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert payload["service"] == "new"
+
+
+def test_otlp_headers_are_read_from_the_environment(monkeypatch):
+    # The env var was documented but never read, so a Seq API key supplied only
+    # by environment was dropped and export failed auth with no local symptom.
+    seen = {}
+
+    def fake_install(logger, service_name, level, endpoint, headers):
+        seen["headers"] = headers
+
+    monkeypatch.setattr(logger_mod, "_install_otlp_handler", fake_install)
+    monkeypatch.setenv("STONEDOG_LOGS_OTLP_HEADERS", "X-Seq-ApiKey=secret")
+    configure(service_name="svc", otlp_endpoint="http://localhost:5341/v1/logs")
+    assert seen["headers"] == "X-Seq-ApiKey=secret"
 
 
 def test_otlp_without_extra_falls_back_to_console(capsys):
@@ -194,7 +232,7 @@ pytest.importorskip("opentelemetry.sdk._logs", reason="otlp extra not installed"
 def test_build_otlp_handler_returns_handler():
     from opentelemetry.sdk._logs import LoggingHandler
 
-    from roz_logs.otlp import build_otlp_handler
+    from stonedog_logs.otlp import build_otlp_handler
 
     handler = build_otlp_handler(
         "card-sorter",
@@ -216,10 +254,10 @@ def test_configure_installs_otlp_handler_when_extra_present():
         otlp_headers="X-Seq-ApiKey=abc",
     )
     root = logging.getLogger()
-    roz_handlers = [
-        h for h in root.handlers if getattr(h, "_roz_logs_handler", False)
+    installed_handlers = [
+        h for h in root.handlers if getattr(h, "_stonedog_logs_handler", False)
     ]
-    assert len(roz_handlers) == 2  # console + OTLP
+    assert len(installed_handlers) == 2  # console + OTLP
     from opentelemetry.sdk._logs import LoggingHandler
 
-    assert any(isinstance(h, LoggingHandler) for h in roz_handlers)
+    assert any(isinstance(h, LoggingHandler) for h in installed_handlers)

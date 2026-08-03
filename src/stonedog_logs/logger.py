@@ -1,11 +1,11 @@
 """Core logging configuration and the structured ``BoundLogger`` wrapper.
 
-``roz-logs`` is a thin layer over the standard library :mod:`logging` module.
-Calling :func:`configure` once installs handlers/formatters on a base logger;
-:func:`get_logger` then hands back a :class:`BoundLogger` that accepts
+``stonedog-logs`` is a thin layer over the standard library :mod:`logging`
+module. Calling :func:`configure` once installs handlers/formatters on a base
+logger; :func:`get_logger` then hands back a :class:`BoundLogger` that accepts
 structured key/value fields and supports context binding::
 
-    from roz_logs import configure, get_logger
+    from stonedog_logs import configure, get_logger
 
     configure(service_name="card-sorter")
     log = get_logger(__name__)
@@ -25,10 +25,13 @@ from typing import Any, Dict, Mapping, Optional
 
 # Key under which structured fields are stashed on a ``LogRecord`` so the
 # formatters can render them without colliding with reserved attributes.
-_FIELDS_ATTR = "roz_fields"
+_FIELDS_ATTR = "stonedog_fields"
 
 # Marks handlers installed by this library so re-configuring is idempotent.
-_ROZ_HANDLER_FLAG = "_roz_logs_handler"
+# The literal is also what identifies handlers installed by an *older*
+# ``roz-logs`` in the same process, so both are checked when removing.
+_HANDLER_FLAG = "_stonedog_logs_handler"
+_LEGACY_HANDLER_FLAG = "_roz_logs_handler"
 
 # Resolved once by ``configure`` and read by ``get_logger``/formatters.
 _CONFIG: "_Config | None" = None
@@ -55,6 +58,18 @@ def _coerce_level(level: "int | str | None", default: int = logging.INFO) -> int
 
 def _env_truthy(value: Optional[str]) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env(suffix: str) -> Optional[str]:
+    """Read ``STONEDOG_LOGS_<suffix>``, falling back to ``ROZ_LOGS_<suffix>``.
+
+    The library was published as ``roz-logs`` before the rename, and deployed
+    devices (the Raspberry Pi card sorters) still carry ``ROZ_LOGS_*`` in their
+    environment. Dropping the fallback would not fail loudly — configure() would
+    just silently revert those devices to defaults — so the old names keep
+    working. Prefer the new names in anything written from here on.
+    """
+    return os.getenv(f"STONEDOG_LOGS_{suffix}") or os.getenv(f"ROZ_LOGS_{suffix}")
 
 
 class TextFormatter(logging.Formatter):
@@ -114,20 +129,21 @@ def configure(
     otlp_headers: "str | Mapping[str, str] | None" = None,
     base_logger: str = "",
 ) -> None:
-    """Install ``roz-logs`` handlers on ``base_logger`` (root by default).
+    """Install ``stonedog-logs`` handlers on ``base_logger`` (root by default).
 
     All arguments fall back to environment variables so deployments can be
-    configured without code changes:
+    configured without code changes. Each also accepts the pre-rename
+    ``ROZ_LOGS_*`` spelling (see :func:`_env`):
 
-    ============================  ==========================================
+    ============================  ===============================================
     Argument                      Environment variable
-    ============================  ==========================================
-    ``service_name``              ``ROZ_LOGS_SERVICE_NAME`` (default ``app``)
-    ``level``                     ``ROZ_LOGS_LEVEL`` (default ``INFO``)
-    ``json_output``               ``ROZ_LOGS_JSON``
-    ``otlp_endpoint``             ``ROZ_LOGS_OTLP_ENDPOINT``
-    ``otlp_headers``              ``ROZ_LOGS_OTLP_HEADERS`` (``k=v,k=v``)
-    ============================  ==========================================
+    ============================  ===============================================
+    ``service_name``              ``STONEDOG_LOGS_SERVICE_NAME`` (default ``app``)
+    ``level``                     ``STONEDOG_LOGS_LEVEL`` (default ``INFO``)
+    ``json_output``               ``STONEDOG_LOGS_JSON``
+    ``otlp_endpoint``             ``STONEDOG_LOGS_OTLP_ENDPOINT``
+    ``otlp_headers``              ``STONEDOG_LOGS_OTLP_HEADERS`` (``k=v,k=v``)
+    ============================  ===============================================
 
     Calling this more than once is safe — previously installed handlers are
     removed first so configuration never stacks up. When ``otlp_endpoint`` is
@@ -136,18 +152,23 @@ def configure(
     """
     global _CONFIG
 
-    service_name = service_name or os.getenv("ROZ_LOGS_SERVICE_NAME", "app")
-    numeric_level = _coerce_level(level or os.getenv("ROZ_LOGS_LEVEL"))
+    service_name = service_name or _env("SERVICE_NAME") or "app"
+    numeric_level = _coerce_level(level or _env("LEVEL"))
     if json_output is None:
-        json_output = _env_truthy(os.getenv("ROZ_LOGS_JSON"))
-    otlp_endpoint = otlp_endpoint or os.getenv("ROZ_LOGS_OTLP_ENDPOINT")
+        json_output = _env_truthy(_env("JSON"))
+    otlp_endpoint = otlp_endpoint or _env("OTLP_ENDPOINT")
+    # Previously documented but never read, so a Seq API key supplied purely by
+    # environment was dropped and export failed auth with no local symptom.
+    otlp_headers = otlp_headers or _env("OTLP_HEADERS")
 
     logger = logging.getLogger(base_logger)
     logger.setLevel(numeric_level)
 
     # Drop any handlers a prior ``configure`` call installed (idempotency).
     for handler in list(logger.handlers):
-        if getattr(handler, _ROZ_HANDLER_FLAG, False):
+        if getattr(handler, _HANDLER_FLAG, False) or getattr(
+            handler, _LEGACY_HANDLER_FLAG, False
+        ):
             logger.removeHandler(handler)
 
     formatter: logging.Formatter = (
@@ -156,7 +177,7 @@ def configure(
     console = logging.StreamHandler()
     console.setFormatter(formatter)
     console.setLevel(numeric_level)
-    setattr(console, _ROZ_HANDLER_FLAG, True)
+    setattr(console, _HANDLER_FLAG, True)
     logger.addHandler(console)
 
     if otlp_endpoint:
@@ -179,18 +200,18 @@ def _install_otlp_handler(
         from .otlp import build_otlp_handler
     except Exception as exc:  # pragma: no cover - defensive import guard
         logging.getLogger(__name__).warning(
-            "roz-logs: OTLP requested but unavailable (%s); using console only", exc
+            "stonedog-logs: OTLP requested but unavailable (%s); using console only", exc
         )
         return
 
     handler = build_otlp_handler(service_name, level, endpoint, headers)
     if handler is None:
         logging.getLogger(__name__).warning(
-            "roz-logs: OTLP export unavailable (install the 'otlp' extra); "
+            "stonedog-logs: OTLP export unavailable (install the 'otlp' extra); "
             "using console only"
         )
         return
-    setattr(handler, _ROZ_HANDLER_FLAG, True)
+    setattr(handler, _HANDLER_FLAG, True)
     logger.addHandler(handler)
 
 
