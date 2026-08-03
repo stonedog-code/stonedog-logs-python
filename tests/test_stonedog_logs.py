@@ -6,7 +6,6 @@ import logging
 
 import pytest
 
-import stonedog_logs
 import stonedog_logs.logger as logger_mod
 from stonedog_logs import configure, get_logger
 from stonedog_logs.logger import _coerce_level, _render_value
@@ -75,7 +74,9 @@ def test_configure_is_idempotent():
     configure(service_name="a")
     configure(service_name="b")
     installed_handlers = [
-        h for h in logging.getLogger().handlers if getattr(h, "_stonedog_logs_handler", False)
+        h
+        for h in logging.getLogger().handlers
+        if getattr(h, "_stonedog_logs_handler", False)
     ]
     assert len(installed_handlers) == 1  # not stacked
 
@@ -150,7 +151,9 @@ def test_otlp_headers_are_read_from_the_environment(monkeypatch):
 def test_otlp_without_extra_falls_back_to_console(capsys):
     # opentelemetry is not installed in the test env, so requesting OTLP must
     # not raise — it should warn and keep console logging working.
-    configure(service_name="svc", otlp_endpoint="http://localhost:5341/ingest/otlp/v1/logs")
+    configure(
+        service_name="svc", otlp_endpoint="http://localhost:5341/ingest/otlp/v1/logs"
+    )
     get_logger("otlp").info("still logs")
     assert "still logs" in capsys.readouterr().err
 

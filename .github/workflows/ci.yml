@@ -1,0 +1,114 @@
+# The merge gate for stonedog-logs.
+#
+# Until now there was none (NEH-271): `gh pr checks` reported nothing at all,
+# so every PR merged on whatever the author happened to run locally — including
+# the roz-logs -> stonedog-logs rename (#2), a breaking release.
+#
+# The gate is the tooling the repo already declares in pyproject.toml: the
+# `dev` dependency group (black, isort, flake8, pytest, pytest-cov) and the
+# addopts line that carries `--cov-fail-under=90`. Nothing new is introduced
+# here except the `.flake8` section limits, which only write down the 88-column
+# line length black has always been configured for.
+name: CI
+
+on:
+  # Every PR, not just those based on main. A PR stacked on another branch is
+  # the one most likely to need the gate — including this workflow's own PR,
+  # which is stacked on the skip fix and would otherwise report zero checks.
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  gate:
+    name: Gate (lint + tests, py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor and the ceiling of `requires-python = ">=3.9,<4.0"`. Both
+        # were run locally against this commit: 25 passed, 98.68% coverage.
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Poetry runs on THIS interpreter, not the one under test. Poetry 2.x
+      # requires Python >= 3.10, so installing it under the 3.9 matrix leg dies
+      # with "Poetry installation failed" before a single test runs — which is
+      # how this workflow's own first hosted run failed.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Poetry is what the project is built with (poetry-core backend) and the
+      # only place the dev tool versions are declared, so it is what installs
+      # them. There is no poetry.lock committed, so this resolves fresh; the
+      # dev deps are caret-pinned, which is what keeps that stable.
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-in-project: true
+
+      # The interpreter under test, installed second so Poetry is already in
+      # place, then handed to Poetry explicitly by absolute path.
+      - uses: actions/setup-python@v5
+        id: target-python
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build the project venv on the interpreter under test
+        run: |
+          poetry env use "${{ steps.target-python.outputs.python-path }}"
+          poetry run python -VV
+
+      # `--extras otlp` is load-bearing. The two OTLP tests are marked
+      # `skipif` (NEH-272), so without the extra they skip, the exporter path
+      # in otlp.py goes unexercised and coverage falls from 98.68% to 91.39%.
+      # The point of CI is to exercise it.
+      - name: Install the package, its dev tools and the otlp extra
+        run: poetry install --with dev --extras otlp
+
+      - name: black
+        run: poetry run black --check src tests
+
+      - name: isort
+        run: poetry run isort --check-only src tests
+
+      - name: flake8
+        run: poetry run flake8 src tests
+
+      # addopts in pyproject.toml already carries the 90% coverage gate.
+      - name: pytest
+        run: poetry run pytest
+
+  no-extra:
+    # `pip install stonedog-logs` — no extras — is the documented default, and
+    # the core library deliberately has zero required runtime dependencies. So
+    # the suite has to pass with opentelemetry absent, and this job is what
+    # says so. Before NEH-272 this configuration collected 0 tests and failed
+    # the coverage gate at 30.46%, which is exactly the failure it now pins.
+    name: Tests without the otlp extra
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-in-project: true
+
+      - name: Install without the optional extra
+        run: poetry install --with dev
+
+      # Expect the 2 OTLP tests to skip and the 90% gate to hold anyway
+      # (measured locally: 23 passed, 2 skipped, 91.39%).
+      - name: pytest
+        run: poetry run pytest
