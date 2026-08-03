@@ -1,5 +1,6 @@
 """Tests for the stonedog-logs structured logging library."""
 
+import importlib.util
 import json
 import logging
 
@@ -225,10 +226,27 @@ def test_debug_below_level_is_suppressed(capsys):
 
 
 # --- OTLP export (requires the `otlp` extra to be installed) ------------------
+#
+# The guard MUST be a per-test marker, never a module-level
+# ``pytest.importorskip``. That call raises ``Skipped`` while the module is
+# being imported, so pytest skips the WHOLE file — every test above this line
+# included — and the run reports "1 skipped" having asserted nothing (NEH-272).
 
-pytest.importorskip("opentelemetry.sdk._logs", reason="otlp extra not installed")
+
+def _otlp_extra_installed() -> bool:
+    """True when the optional ``otlp`` extra is importable."""
+    try:
+        return importlib.util.find_spec("opentelemetry.sdk._logs") is not None
+    except ImportError:  # parent package missing entirely
+        return False
 
 
+requires_otlp = pytest.mark.skipif(
+    not _otlp_extra_installed(), reason="otlp extra not installed"
+)
+
+
+@requires_otlp
 def test_build_otlp_handler_returns_handler():
     from opentelemetry.sdk._logs import LoggingHandler
 
@@ -245,6 +263,7 @@ def test_build_otlp_handler_returns_handler():
     assert isinstance(handler, LoggingHandler)
 
 
+@requires_otlp
 def test_configure_installs_otlp_handler_when_extra_present():
     # With the extra installed, configure() must attach a second (OTLP) handler
     # flagged as ours, alongside the console handler.
