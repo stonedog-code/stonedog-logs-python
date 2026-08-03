@@ -81,7 +81,10 @@ class TextFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat()
-        head = f"{ts} {record.levelname:<8} [{self.service_name}] {record.name}: {record.getMessage()}"
+        head = (
+            f"{ts} {record.levelname:<8} [{self.service_name}] "
+            f"{record.name}: {record.getMessage()}"
+        )
         fields: Mapping[str, Any] = getattr(record, _FIELDS_ATTR, {}) or {}
         if fields:
             rendered = " ".join(f"{k}={_render_value(v)}" for k, v in fields.items())
@@ -200,7 +203,8 @@ def _install_otlp_handler(
         from .otlp import build_otlp_handler
     except Exception as exc:  # pragma: no cover - defensive import guard
         logging.getLogger(__name__).warning(
-            "stonedog-logs: OTLP requested but unavailable (%s); using console only", exc
+            "stonedog-logs: OTLP requested but unavailable (%s); using console only",
+            exc,
         )
         return
 
@@ -226,7 +230,9 @@ class BoundLogger:
 
     __slots__ = ("_logger", "_context")
 
-    def __init__(self, logger: logging.Logger, context: Optional[Mapping[str, Any]] = None) -> None:
+    def __init__(
+        self, logger: logging.Logger, context: Optional[Mapping[str, Any]] = None
+    ) -> None:
         self._logger = logger
         self._context: Dict[str, Any] = dict(context or {})
 
@@ -239,11 +245,15 @@ class BoundLogger:
     def name(self) -> str:
         return self._logger.name
 
-    def _log(self, level: int, message: str, exc_info: bool, fields: Dict[str, Any]) -> None:
+    def _log(
+        self, level: int, message: str, exc_info: bool, fields: Dict[str, Any]
+    ) -> None:
         if not self._logger.isEnabledFor(level):
             return
         merged = {**self._context, **fields}
-        self._logger.log(level, message, exc_info=exc_info, extra={_FIELDS_ATTR: merged})
+        self._logger.log(
+            level, message, exc_info=exc_info, extra={_FIELDS_ATTR: merged}
+        )
 
     def debug(self, message: str, **fields: Any) -> None:
         self._log(logging.DEBUG, message, False, fields)
