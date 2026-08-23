@@ -74,6 +74,34 @@ anything written from here on.
 switch from the human-readable `TextFormatter` to the line-delimited
 `JsonFormatter`; anything else keeps text output.
 
+## Configuring when you might not be the only one
+
+`configure()` installs handlers, so it belongs in an **application entry point
+and never in a library** — a library that configures logging hijacks it for
+everything that imports the library.
+
+Sometimes an application cannot be sure it is alone: an app running as a sidecar
+inside somebody else's process, a CLI that may be imported, a worker under a host
+that set up its own logging. Calling `configure()` there installs a *second*
+handler and every line appears twice.
+
+```python
+from stonedog_logs import configure, logging_is_configured
+
+# no-op if ANYTHING has already installed a handler, including one we did not
+configure(service_name="my-service", only_if_unconfigured=True)
+
+logging_is_configured()          # ask directly
+```
+
+This is a different question from calling `configure()` twice, which has always
+been safe: that removes handlers *this library* installed, so configuration
+never stacks up on itself. The flag is about not overriding **somebody else**.
+
+Both `configure()` and `logging_is_configured()` accept a logger **object** as
+well as a name, so a caller that already holds one does not need to know its
+name.
+
 ## OTLP export (shipping to Seq and other collectors)
 
 The core library has **zero runtime dependencies** and only ever writes to the

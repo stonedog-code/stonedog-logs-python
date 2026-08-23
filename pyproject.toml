@@ -1,6 +1,6 @@
 [project]
 name = "stonedog-logs"
-version = "0.2.0"
+version = "0.3.0"
 description = "Structured logging for Python with optional OpenTelemetry (OTLP) export to providers like Seq"
 authors = [
     {name = "Jesse Stone",email = "jesse@stonedogcode.com"}

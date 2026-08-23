@@ -124,14 +124,45 @@ def _render_value(value: Any) -> str:
     return f'"{text}"' if (" " in text or "=" in text) else text
 
 
+def _resolve(base_logger: "str | logging.Logger") -> logging.Logger:
+    """Accept a logger name or a logger object.
+
+    A caller that already holds a logger should not have to know its name to
+    talk to this library — and passing the object is the only way to reach a
+    logger that is not in the global manager, which is what makes this
+    behaviour testable at all: pytest's logging plugin attaches a capture
+    handler to every logger it can see, so a NAMED logger is never
+    "unconfigured" inside a test. Measured: a freshly cleared named logger came
+    back holding two `LogCaptureHandler`s.
+    """
+    if isinstance(base_logger, logging.Logger):
+        return base_logger
+    return logging.getLogger(base_logger)
+
+
+def logging_is_configured(base_logger: "str | logging.Logger" = "") -> bool:
+    """Has anything already installed a handler on ``base_logger``?
+
+    Exposed because the answer is what a caller needs in order to decide, and
+    because reaching into ``logging.getLogger("").handlers`` at a call site is
+    the kind of detail a library exists to own.
+
+    It counts ANY handler, including one this library did not install — which is
+    the point, since the question is whether somebody else has already taken
+    responsibility for logging in this process.
+    """
+    return bool(_resolve(base_logger).handlers)
+
+
 def configure(
     service_name: Optional[str] = None,
     level: "int | str | None" = None,
     json_output: Optional[bool] = None,
     otlp_endpoint: Optional[str] = None,
     otlp_headers: "str | Mapping[str, str] | None" = None,
-    base_logger: str = "",
-) -> None:
+    base_logger: "str | logging.Logger" = "",
+    only_if_unconfigured: bool = False,
+) -> bool:
     """Install ``stonedog-logs`` handlers on ``base_logger`` (root by default).
 
     All arguments fall back to environment variables so deployments can be
@@ -152,8 +183,28 @@ def configure(
     removed first so configuration never stacks up. When ``otlp_endpoint`` is
     set but the ``otlp`` extra is not installed, a warning is logged and the
     library falls back to console-only output rather than crashing.
+
+    ``only_if_unconfigured=True`` makes this a no-op when ANYTHING has already
+    installed a handler — including a handler this library did not install. Use
+    it where your code may not be the only thing configuring logging: an app
+    embedded as a sidecar, a CLI that might be imported, a worker under a host
+    that set up its own logging. Without it, calling ``configure`` in such a
+    process adds a second handler and every line appears twice.
+
+    Note that the idempotency above and this flag answer DIFFERENT questions.
+    Idempotency stops this library stacking handlers on itself; the flag stops
+    it overriding somebody else. Consumers were writing their own version of the
+    second because the library only offered the first.
+
+    **Call this from an application entry point, never from a library.** A
+    library that installs handlers hijacks logging for everything that imports
+    it; a library should use :func:`get_logger` and leave configuration to
+    whoever owns the process. Returns ``True`` if it configured anything.
     """
     global _CONFIG
+
+    if only_if_unconfigured and logging_is_configured(base_logger):
+        return False
 
     service_name = service_name or _env("SERVICE_NAME") or "app"
     numeric_level = _coerce_level(level or _env("LEVEL"))
@@ -164,7 +215,7 @@ def configure(
     # environment was dropped and export failed auth with no local symptom.
     otlp_headers = otlp_headers or _env("OTLP_HEADERS")
 
-    logger = logging.getLogger(base_logger)
+    logger = _resolve(base_logger)
     logger.setLevel(numeric_level)
 
     # Drop any handlers a prior ``configure`` call installed (idempotency).
@@ -188,7 +239,8 @@ def configure(
             logger, service_name, numeric_level, otlp_endpoint, otlp_headers
         )
 
-    _CONFIG = _Config(service_name, numeric_level, base_logger)
+    _CONFIG = _Config(service_name, numeric_level, logger.name)
+    return True
 
 
 def _install_otlp_handler(
