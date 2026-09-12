@@ -46,12 +46,18 @@ jobs:
 
       # Poetry is what the project is built with (poetry-core backend) and the
       # only place the dev tool versions are declared, so it is what installs
-      # them. There is no poetry.lock committed, so this resolves fresh; the
-      # dev deps are caret-pinned, which is what keeps that stable.
+      # them — from the committed poetry.lock (NEH-1317), so every run installs
+      # the same versions instead of resolving fresh.
       - name: Install Poetry
         uses: snok/install-poetry@v1
         with:
           virtualenvs-in-project: true
+
+      # A pyproject.toml edited without re-running `poetry lock` fails HERE,
+      # by name. Poetry 2.x's `install` also refuses a stale lock (measured:
+      # exit 1 on a planted drift), but snok installs whichever Poetry is
+      # current, so the gate should not depend on one version's behaviour.
+      - run: poetry check --lock
 
       # The interpreter under test, installed second so Poetry is already in
       # place, then handed to Poetry explicitly by absolute path.
